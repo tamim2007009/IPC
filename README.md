@@ -101,6 +101,28 @@ IPC/
 
 ---
 
+## 📸 Output Examples
+
+Below are screenshots demonstrating the IPC system in action:
+
+### YOLOv5 Object Detection with IPC
+
+<img src="image(output)/WhatsApp%20Image%202026-02-03%20at%208.20.57%20AM%20(1).jpeg" width="600" alt="Object Detection Output 1">
+
+<img src="image(output)/WhatsApp%20Image%202026-02-03%20at%208.20.57%20AM.jpeg" width="600" alt="Object Detection Output 2">
+
+<img src="image(output)/WhatsApp%20Image%202026-02-03%20at%208.20.58%20AM%20(1).jpeg" width="600" alt="Object Detection Output 3">
+
+<img src="image(output)/WhatsApp%20Image%202026-02-03%20at%208.20.58%20AM%20(2).jpeg" width="600" alt="Object Detection Output 4">
+
+<img src="image(output)/WhatsApp%20Image%202026-02-03%20at%208.20.58%20AM%20(3).jpeg" width="600" alt="Object Detection Output 5">
+
+<img src="image(output)/WhatsApp%20Image%202026-02-03%20at%208.20.58%20AM%20(4).jpeg" width="600" alt="Object Detection Output 6">
+
+<img src="image(output)/WhatsApp%20Image%202026-02-03%20at%208.20.58%20AM.jpeg" width="600" alt="Object Detection Output 7">
+
+---
+
 ## Part 1: Simple Visualization
 
 ### Overview
