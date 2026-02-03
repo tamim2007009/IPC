@@ -1,0 +1,26 @@
+# Video files
+video.mp4
+
+# Build outputs
+*.exe
+*.ilk
+*.pdb
+*.obj
+*.o
+x64/
+Debug/
+Release/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE
+.vs/
+*.vcxproj.user
+
+# Model files (large)
+*.onnx
