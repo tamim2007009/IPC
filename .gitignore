@@ -1,5 +1,6 @@
 # Video files
 video.mp4
+*.mp4
 
 # Build outputs
 *.exe
@@ -11,6 +12,9 @@ x64/
 Debug/
 Release/
 
+# Large DLLs
+*.dll
+
 # Python
 __pycache__/
 *.pyc
@@ -18,9 +22,16 @@ __pycache__/
 .venv/
 venv/
 
-# IDE
+# IDE / Visual Studio
 .vs/
 *.vcxproj.user
+*.ipch
+*.db
+*.opendb
+*.VC.db
 
 # Model files (large)
 *.onnx
+
+# Precompiled headers
+ipch/
