@@ -1,1034 +1,672 @@
-# Inter-Process Communication (IPC) - Shared Memory Implementation
-## Cross-Platform Communication between C++ and Python
+# Inter-Process Communication (IPC) Project
+
+This project demonstrates **Inter-Process Communication (IPC)** using **Windows Shared Memory** between C++ and Python processes. It includes two implementations:
+
+1. **Simple Visualization** - Basic data sharing between C++ writer and Python reader
+2. **YOLOv5 Object Detection** - Real-time video frame and detection data transfer
 
 ---
 
 ## 📋 Table of Contents
-1. [Project Overview](#project-overview)
-2. [Theory - Shared Memory Concepts](#theory---shared-memory-concepts)
-3. [Architecture](#architecture)
-4. [Code Explanation](#code-explanation)
-5. [Installation & Setup](#installation--setup)
-6. [Execution Instructions](#execution-instructions)
-7. [Data Structure Details](#data-structure-details)
-8. [How It Works](#how-it-works)
-9. [Memory Layout](#memory-layout)
-10. [Troubleshooting](#troubleshooting)
+
+- [What is Inter-Process Communication?](#what-is-inter-process-communication)
+- [IPC Mechanism Used](#ipc-mechanism-used)
+- [Project Structure](#project-structure)
+- [Part 1: Simple Visualization](#part-1-simple-visualization)
+- [Part 2: YOLOv5 Object Detection](#part-2-yolov5-object-detection)
+- [Detailed IPC Flow](#detailed-ipc-flow)
+- [Synchronization Mechanisms](#synchronization-mechanisms)
+- [Memory Layout](#memory-layout)
+- [How to Run](#how-to-run)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
-## Project Overview
+## What is Inter-Process Communication?
 
-This project demonstrates **Inter-Process Communication (IPC)** using **shared memory** as the communication mechanism. Two separate processes—a C++ writer and a Python reader—communicate by accessing the same memory region without using traditional IPC methods like pipes, sockets, or message queues.
+**Inter-Process Communication (IPC)** is a mechanism that allows different processes (running programs) to exchange data and synchronize their actions. Since each process has its own isolated memory space, special techniques are needed for processes to communicate.
 
-### Key Features
-- **Cross-Platform**: Uses Windows-specific APIs (CreateFileMapping) instead of POSIX APIs
-- **Efficient Data Exchange**: Direct memory access without serialization overhead
-- **Heterogeneous Languages**: Demonstrates communication between C++ and Python
-- **Structured Data**: Shares complex data types with multiple fields and arrays
-- **Real-Time Data**: Data updates are immediately visible to the reader process
+### Common IPC Methods
 
-### Project Components
-| Component | Description | Language |
-|-----------|-------------|----------|
-| `writer.cpp` | Creates shared memory segment and writes data | C++ |
-| `reader.py` | Connects to shared memory and reads data | Python |
-| `QUICKSTART.md` | Quick setup and execution guide | Markdown |
-| `README.md` | This comprehensive documentation | Markdown |
+| Method             | Description                            | Use Case                                        |
+| ------------------ | -------------------------------------- | ----------------------------------------------- |
+| **Shared Memory**  | Processes share a common memory region | High-speed data transfer (used in this project) |
+| **Pipes**          | Unidirectional data channel            | Simple parent-child communication               |
+| **Message Queues** | Asynchronous message passing           | Decoupled communication                         |
+| **Sockets**        | Network-based communication            | Distributed systems                             |
+| **Signals**        | Asynchronous notifications             | Event-driven communication                      |
 
 ---
 
-## Theory - Shared Memory Concepts
+## IPC Mechanism Used
 
-### What is Shared Memory?
-
-Shared memory is an IPC mechanism that allows multiple processes to access the same region of physical memory. Unlike pipes or sockets that require copying data, shared memory provides direct memory access, making it one of the fastest IPC methods.
-
-#### Key Advantages
-1. **Performance**: Minimal overhead—direct memory access
-2. **Simplicity**: No complex serialization needed
-3. **Speed**: Faster than network-based IPC methods
-4. **Real-time**: Immediate data visibility across processes
-
-#### Key Disadvantages
-1. **Synchronization**: Requires additional mechanisms (mutexes, semaphores)
-2. **Complexity**: Memory layout alignment and binary compatibility issues
-3. **Security**: Less isolated than other IPC methods
-4. **Debugging**: Harder to trace data corruption
-
-### Operating System Implementation
-
-**Windows (This Project)**:
-- Uses `CreateFileMapping()` API to create mapped memory regions
-- Managed through the kernel's paging system
-- Named objects accessible across process boundaries
-- Automatic cleanup with handle closure
-
-**Linux/POSIX**:
-- Uses `shmget()`, `shmat()`, `shmdt()` system calls
-- System V IPC style or POSIX API
-- Persistent until explicitly removed
-- Requires manual cleanup
-
-### Memory Model
+This project uses **Windows Named Shared Memory** as the primary IPC mechanism:
 
 ```
-Process 1 (C++)         Kernel Space        Process 2 (Python)
-┌─────────────────┐                        ┌─────────────────┐
-│ Virtual Address │                        │ Virtual Address │
-│ Space 1         │                        │ Space 2         │
-└────────┬────────┘                        └────────┬────────┘
-         │                                          │
-         └──────────────────┬──────────────────────┘
-                            │
-                   ┌────────▼────────┐
-                   │ Shared Memory   │
-                   │ Physical Memory │
-                   └─────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         IPC ARCHITECTURE                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌─────────────────┐                        ┌─────────────────┐       │
+│   │   PROCESS A     │                        │   PROCESS B     │       │
+│   │   (C++ Writer)  │                        │   (Python Reader)│      │
+│   │                 │                        │                 │       │
+│   │ CreateFileMapping() ──── Creates ────▶  mmap.mmap()       │       │
+│   │ MapViewOfFile()    │                    │  (Connects)      │       │
+│   │                 │                        │                 │       │
+│   │     WRITE ──────┼──── Shared Memory ────┼───── READ       │       │
+│   │                 │    (Named Region)      │                 │       │
+│   └─────────────────┘                        └─────────────────┘       │
+│                                                                         │
+│   Key: Both processes access the SAME physical memory region            │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Both processes map their virtual address spaces to the same physical memory location.
+### Why Shared Memory?
+
+| Advantage          | Description                                                             |
+| ------------------ | ----------------------------------------------------------------------- |
+| **Speed**          | Direct memory access - no kernel involvement for data transfer          |
+| **Zero-Copy**      | Data doesn't need to be copied between processes                        |
+| **Large Data**     | Efficient for transferring large amounts of data (images, video frames) |
+| **Cross-Language** | Works between any languages that can access memory (C++, Python, etc.)  |
 
 ---
 
-## Architecture
+## Project Structure
+
+```
+IPC/
+├── IPC(Simple visualizaton)/           # Basic IPC demonstration
+│   ├── writer.cpp                      # C++ process that writes data
+│   ├── reader.py                       # Python process that reads data
+│   ├── README.md                       # Original documentation
+│   └── QUICKSTART.md                   # Quick start guide
+│
+├── IPC(yelov5 for object detection)/   # Advanced IPC with YOLO
+│   ├── producer/                       # C++ Producer
+│   │   ├── test.cpp                    # YOLO inference + shared memory write
+│   │   ├── yolov5s.onnx               # YOLO model file
+│   │   ├── coco-classes.txt           # Object class names
+│   │   └── *.vcxproj                  # Visual Studio project files
+│   │
+│   └── consumer/                       # Python Consumer
+│       ├── consumer_shm.py            # Shared memory reader + visualization
+│       ├── coco-classes.txt           # Object class names
+│       └── requirements.txt           # Python dependencies
+│
+└── README.md                           # This file
+```
+
+---
+
+## Part 1: Simple Visualization
+
+### Overview
+
+A basic demonstration where:
+
+- **C++ Writer** creates shared memory and writes structured data
+- **Python Reader** connects to shared memory and reads the data
+
+### Data Structure
+
+```cpp
+// C++ Structure (writer.cpp)
+struct SharedData {
+    int processId;           // 4 bytes
+    char message[500];       // 500 bytes
+    bool dataReady;          // 1 byte + 3 padding
+    int counter;             // 4 bytes
+    double temperature;      // 8 bytes
+    float coordinates[3];    // 12 bytes
+    char userName[50];       // 50 bytes + 6 padding
+    long long timestamp;     // 8 bytes
+    int dataArray[10];       // 40 bytes
+};
+```
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    SIMPLE IPC DATA FLOW                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   C++ WRITER (writer.cpp)                                              │
+│   ═══════════════════════                                              │
+│                                                                         │
+│   1. CreateFileMappingA("Local\\IPCSharedMemory", 1024)                │
+│      └── Creates a named shared memory segment of 1024 bytes           │
+│                                                                         │
+│   2. MapViewOfFile()                                                   │
+│      └── Maps the shared memory into the process's address space       │
+│                                                                         │
+│   3. Write data to SharedData structure                                 │
+│      • processId = GetCurrentProcessId()                               │
+│      • message = "Hello from C++ Process!"                             │
+│      • counter = 42                                                     │
+│      • temperature = 23.5                                              │
+│      • dataReady = true                                                │
+│                                                                         │
+│   4. Wait for user input (keeps memory alive)                          │
+│                                                                         │
+│   ─────────────────────────────────────────────────────────────────────│
+│                                                                         │
+│   PYTHON READER (reader.py)                                            │
+│   ═════════════════════════                                            │
+│                                                                         │
+│   1. mmap.mmap(-1, 1024, "Local\\IPCSharedMemory")                     │
+│      └── Opens existing shared memory by name                          │
+│                                                                         │
+│   2. shm.read(1024)                                                    │
+│      └── Reads raw bytes from shared memory                            │
+│                                                                         │
+│   3. struct.unpack()                                                   │
+│      └── Converts raw bytes to Python data types                       │
+│      └── Must match C++ structure layout exactly!                      │
+│                                                                         │
+│   4. Display data to user                                              │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Code Snippets
+
+**C++ Writer - Creating Shared Memory:**
+
+```cpp
+// Create shared memory segment
+HANDLE hMapFile = CreateFileMappingA(
+    INVALID_HANDLE_VALUE,    // Use system paging file
+    NULL,                    // Default security
+    PAGE_READWRITE,          // Read/write access
+    0, SHM_SIZE,             // Size (1024 bytes)
+    "Local\\IPCSharedMemory" // Name for identification
+);
+
+// Map to process address space
+SharedData* sharedData = (SharedData*)MapViewOfFile(
+    hMapFile,
+    FILE_MAP_ALL_ACCESS,
+    0, 0, SHM_SIZE
+);
+
+// Write data
+sharedData->counter = 42;
+sharedData->dataReady = true;
+```
+
+**Python Reader - Connecting and Reading:**
+
+```python
+# Connect to existing shared memory
+shm = mmap.mmap(-1, SHM_SIZE, "Local\\IPCSharedMemory")
+
+# Read raw bytes
+raw_data = shm.read(SHM_SIZE)
+
+# Unpack using struct (must match C++ layout)
+process_id = struct.unpack('i', raw_data[0:4])[0]
+counter = struct.unpack('i', raw_data[508:512])[0]
+```
+
+---
+
+## Part 2: YOLOv5 Object Detection
+
+### Overview
+
+An advanced implementation featuring:
+
+- **C++ Producer**: Captures video frames, runs YOLOv5 inference, writes results to shared memory
+- **Python Consumer**: Reads frames and detections, draws bounding boxes, displays results
 
 ### System Architecture
 
 ```
-┌──────────────────┐              ┌──────────────────┐
-│   C++ Writer     │              │  Python Reader   │
-│  (writer.cpp)    │              │  (reader.py)     │
-│                  │              │                  │
-│ • Create SharedData structure   │ • Define SharedData class
-│ • Fill with values              │ • Unpack binary data
-│ • Write to memory               │ • Display results
-│ • Wait for user input           │ • Close connection
-└─────────┬────────┘              └────────┬─────────┘
-          │                                │
-          └────────────────┬───────────────┘
-                           │
-            ┌──────────────▼──────────────┐
-            │  Shared Memory Segment      │
-            │  "Local\IPCSharedMemory"    │
-            │  Size: 1024 bytes           │
-            │                             │
-            │  Contains:                  │
-            │  • Process ID (4 bytes)     │
-            │  • Message (500 bytes)      │
-            │  • Data Ready Flag (1 byte) │
-            │  • Counter (4 bytes)        │
-            │  • Temperature (8 bytes)    │
-            │  • Coordinates (12 bytes)   │
-            │  • Username (50 bytes)      │
-            │  • Timestamp (8 bytes)      │
-            │  • Data Array (40 bytes)    │
-            └────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    YOLO IPC SYSTEM ARCHITECTURE                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌─────────────────┐                        ┌─────────────────┐       │
+│   │   PRODUCER      │                        │   CONSUMER      │       │
+│   │   (C++)         │                        │   (Python)      │       │
+│   │                 │                        │                 │       │
+│   │ • Video Input   │                        │ • Read Frames   │       │
+│   │ • YOLO Inference│──── Shared Memory ────▶│ • Draw Boxes    │       │
+│   │ • Detection     │   (Circular Queue)     │ • Display       │       │
+│   │ • Write Frames  │                        │                 │       │
+│   └─────────────────┘                        └─────────────────┘       │
+│                                                                         │
+│                    Synchronization via:                                 │
+│                    • Semaphores (Empty/Full)                            │
+│                    • Mutex (Mutual Exclusion)                           │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Shared Memory Layout
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         SHARED MEMORY STRUCTURE                         │
+│                         Total Size: ~5.88 MB                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │ CONTROL BLOCK (12 bytes)                                          │ │
+│  │ ┌─────────────┬─────────────┬─────────────┐                       │ │
+│  │ │ write_idx   │ read_idx    │ count       │                       │ │
+│  │ │ (4 bytes)   │ (4 bytes)   │ (4 bytes)   │                       │ │
+│  │ │ Next write  │ Next read   │ Items in    │                       │ │
+│  │ │ position    │ position    │ queue       │                       │ │
+│  │ └─────────────┴─────────────┴─────────────┘                       │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │ CIRCULAR QUEUE (5 Slots × 1,233,620 bytes each)                   │ │
+│  │                                                                    │ │
+│  │  ┌─────────┬─────────┬─────────┬─────────┬─────────┐             │ │
+│  │  │ Slot 0  │ Slot 1  │ Slot 2  │ Slot 3  │ Slot 4  │             │ │
+│  │  └─────────┴─────────┴─────────┴─────────┴─────────┘             │ │
+│  │                                                                    │ │
+│  │  Each Slot Structure:                                             │ │
+│  │  ┌──────────────────────────────────────────────────┐            │ │
+│  │  │ HEADER (20 bytes)                                │            │ │
+│  │  │ • frame_id (4 bytes) - Frame sequence number     │            │ │
+│  │  │ • width (4 bytes) - Always 640                   │            │ │
+│  │  │ • height (4 bytes) - Always 640                  │            │ │
+│  │  │ • channels (4 bytes) - Always 3 (BGR)            │            │ │
+│  │  │ • num_detections (4 bytes) - Count of objects    │            │ │
+│  │  ├──────────────────────────────────────────────────┤            │ │
+│  │  │ DETECTIONS (200 × 24 bytes = 4,800 bytes)        │            │ │
+│  │  │ Each detection (24 bytes):                       │            │ │
+│  │  │ • class_id (4 bytes, int) - COCO class index     │            │ │
+│  │  │ • confidence (4 bytes, float) - Detection score  │            │ │
+│  │  │ • x (4 bytes, int) - Bounding box left           │            │ │
+│  │  │ • y (4 bytes, int) - Bounding box top            │            │ │
+│  │  │ • width (4 bytes, int) - Box width               │            │ │
+│  │  │ • height (4 bytes, int) - Box height             │            │ │
+│  │  ├──────────────────────────────────────────────────┤            │ │
+│  │  │ IMAGE DATA (640 × 640 × 3 = 1,228,800 bytes)     │            │ │
+│  │  │ • BGR format, uint8 pixels                       │            │ │
+│  │  │ • Row-major order                                │            │ │
+│  │  └──────────────────────────────────────────────────┘            │ │
+│  │                                                                    │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Code Explanation
+## Detailed IPC Flow
 
-### C++ Writer (writer.cpp)
+### Producer Write Operation (C++)
 
-#### 1. **Shared Data Structure Definition**
-```cpp
-struct SharedData {
-    int processId;           // 4 bytes - ID of the C++ process
-    char message[500];       // 500 bytes - Main message string
-    bool dataReady;          // 1 byte - Flag indicating data validity
-    int counter;             // 4 bytes - Integer counter
-    double temperature;      // 8 bytes - Floating-point temperature
-    float coordinates[3];    // 12 bytes - 3D coordinates (X, Y, Z)
-    char userName[50];       // 50 bytes - Username string
-    long long timestamp;     // 8 bytes - System timestamp
-    int dataArray[10];       // 40 bytes - Array of 10 integers
-};
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      PRODUCER WRITE FLOW                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  1. WAIT FOR EMPTY SLOT                                                │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ WaitForSingleObject(semEmpty, INFINITE)                        │ │
+│     │ • Blocks if all 5 slots are full (semEmpty == 0)              │ │
+│     │ • Decrements semEmpty counter when proceeds                    │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  2. ACQUIRE MUTEX (EXCLUSIVE ACCESS)                                   │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ WaitForSingleObject(mutex, INFINITE)                           │ │
+│     │ • Ensures only one process accesses memory at a time          │ │
+│     │ • Prevents data corruption from simultaneous read/write       │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  3. CALCULATE SLOT ADDRESS                                             │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ int write_idx = ctrl[0];  // Read current write position       │ │
+│     │ uint8_t* slot = shm + 12 + (write_idx * SLOT_SIZE);           │ │
+│     │ • Circular: position wraps from 4 back to 0                    │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  4. WRITE DATA TO SLOT                                                 │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ • Write header (frame_id, dimensions, detection count)         │ │
+│     │ • Write detection records (class_id, confidence, bbox)         │ │
+│     │ • Write image data (640×640×3 BGR pixels)                     │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  5. UPDATE CONTROL BLOCK                                               │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ ctrl[0] = (write_idx + 1) % QUEUE_SIZE;  // Advance pointer    │ │
+│     │ ctrl[2]++;  // Increment item count                            │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  6. RELEASE MUTEX                                                      │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ ReleaseMutex(mutex);                                           │ │
+│     │ • Allows other process to access shared memory                 │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  7. SIGNAL DATA AVAILABLE                                              │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ ReleaseSemaphore(semFull, 1, nullptr);                         │ │
+│     │ • Increments semFull counter                                   │ │
+│     │ • Wakes up consumer if it was waiting                          │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Memory Layout Explanation**:
-- Total size: ~627 bytes (with alignment padding)
-- Fixed offsets for binary compatibility with Python
-- Includes various data types to demonstrate mixed-type communication
+### Consumer Read Operation (Python)
 
-#### 2. **Creating Shared Memory**
-```cpp
-HANDLE hMapFile = CreateFileMappingA(
-    INVALID_HANDLE_VALUE,    // Use paging file (virtual memory)
-    NULL,                    // Default security attributes
-    PAGE_READWRITE,          // Read/write access permissions
-    0,                       // High-order DWORD of size (unused)
-    SHM_SIZE,                // Low-order DWORD of size (1024 bytes)
-    SHM_NAME);               // Name: "Local\IPCSharedMemory"
 ```
-
-**Parameters Explanation**:
-- `INVALID_HANDLE_VALUE`: Indicates we're using the system's paging file, not a physical file
-- `PAGE_READWRITE`: Both processes can read and write
-- `SHM_NAME`: Must be unique and matched with the Python reader
-
-**Return Value**:
-- Success: HANDLE to the file mapping object
-- Failure: NULL (use GetLastError() for error code)
-
-#### 3. **Mapping Memory to Process Address Space**
-```cpp
-SharedData* sharedData = (SharedData*)MapViewOfFile(
-    hMapFile,                // Handle from CreateFileMapping
-    FILE_MAP_ALL_ACCESS,     // Read/write access to mapped region
-    0,                       // Offset (high DWORD)
-    0,                       // Offset (low DWORD) - start at beginning
-    SHM_SIZE);               // Size to map
-```
-
-**What Happens**:
-- Maps a view (virtual address) in the current process to the shared memory
-- Returns a pointer to the mapped memory region
-- Allows direct memory access through normal C++ pointers
-
-#### 4. **Writing Data**
-```cpp
-sharedData->processId = GetCurrentProcessId();
-strcpy(sharedData->message, "Hello from C++ Process!\n...");
-sharedData->counter = 42;
-sharedData->temperature = 23.5;
-// ... more data assignments
-sharedData->dataReady = true;  // Signal data is ready
-```
-
-**Key Points**:
-- Direct pointer manipulation writes to shared memory
-- Changes are immediately visible to Python process
-- `dataReady` flag is set last to ensure all data is written
-
-#### 5. **Cleanup**
-```cpp
-UnmapViewOfFile(sharedData);  // Unmap the view
-CloseHandle(hMapFile);         // Close the handle
-```
-
-**Cleanup Process**:
-- `UnmapViewOfFile()`: Removes the mapping from current process
-- `CloseHandle()`: Closes the file mapping object
-- Shared memory persists until all handles are closed
-
----
-
-### Python Reader (reader.py)
-
-#### 1. **SharedData Class Definition**
-```python
-class SharedData:
-    def __init__(self):
-        self.process_id = 0
-        self.message = ""
-        self.data_ready = False
-        self.counter = 0
-        self.temperature = 0.0
-        self.coordinates = [0.0, 0.0, 0.0]
-        self.user_name = ""
-        self.timestamp = 0
-        self.data_array = [0] * 10
-```
-
-**Mirrors C++ Structure**:
-- Same field names and order as C++ struct
-- Python objects initialized to default values
-- Will be populated by unpacking binary data
-
-#### 2. **Binary Data Unpacking**
-```python
-@staticmethod
-def unpack_from_bytes(data):
-    shared = SharedData()
-    offset = 0
-    
-    # Extract process ID (4 bytes)
-    shared.process_id = struct.unpack('i', data[offset:offset+4])[0]
-    offset += 4
-    
-    # Extract message (500 bytes)
-    message_bytes = data[offset:offset+500]
-    null_pos = message_bytes.find(b'\x00')
-    if null_pos != -1:
-        message_bytes = message_bytes[:null_pos]
-    shared.message = message_bytes.decode('utf-8', errors='ignore')
-    offset += 500
-```
-
-**Unpacking Process**:
-- `struct.unpack()`: Converts binary bytes to Python types
-- Format codes: `'i'` = int, `'d'` = double, `'f'` = float, etc.
-- `offset`: Tracks current position in binary buffer
-- Null-terminated strings: Stop at first \x00 byte
-
-**Format Code Reference**:
-| Code | Type | Size |
-|------|------|------|
-| `i` | Integer | 4 bytes |
-| `d` | Double | 8 bytes |
-| `f` | Float | 4 bytes |
-| `Q` | Unsigned long long | 8 bytes |
-| `fff` | 3 Floats | 12 bytes |
-
-#### 3. **Accessing Shared Memory (Windows)**
-```python
-shm = mmap.mmap(-1, SHM_SIZE, SHM_NAME)
-raw_data = shm.read(SHM_SIZE)
-shared_data = SharedData.unpack_from_bytes(raw_data)
-shm.close()
-```
-
-**Memory Mapping on Windows**:
-- `mmap.mmap()`: Opens a named memory-mapped object
-- `-1`: Indicates use of page file (not a physical file)
-- `SHM_NAME`: Must match the C++ program's name
-- `shm.read()`: Reads entire shared memory region into bytes
-- `shm.close()`: Closes the mapping
-
-**Error Handling**:
-```python
-except FileNotFoundError:
-    print("Shared memory segment not found!")
-    print("Please run the C++ program first")
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      CONSUMER READ FLOW                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  1. WAIT FOR DATA                                                      │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ WaitForSingleObject(semFull, INFINITE)                         │ │
+│     │ • Blocks if no data available (semFull == 0)                   │ │
+│     │ • Decrements semFull counter when proceeds                     │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  2. ACQUIRE MUTEX                                                      │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ WaitForSingleObject(mutex, INFINITE)                           │ │
+│     │ • Ensures exclusive access during read                         │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  3. READ CONTROL BLOCK                                                 │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ write_idx, read_idx, count = struct.unpack("iii", shm.read(12))│ │
+│     │ slot_start = 12 + (read_idx * SLOT_SIZE)                       │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  4. READ SLOT DATA                                                     │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ • Read header → frame_id, dimensions, num_detections           │ │
+│     │ • Read detections → class_id, confidence, x, y, w, h           │ │
+│     │ • Read image → numpy array of shape (640, 640, 3)              │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  5. UPDATE CONTROL BLOCK                                               │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ new_read_idx = (read_idx + 1) % QUEUE_SIZE                     │ │
+│     │ shm.write(struct.pack("i", new_read_idx))  // Update read_idx  │ │
+│     │ shm.write(struct.pack("i", count - 1))     // Decrement count  │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  6. RELEASE MUTEX                                                      │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ ReleaseMutex(mutex)                                            │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                              ▼                                          │
+│  7. SIGNAL SLOT FREE                                                   │
+│     ┌────────────────────────────────────────────────────────────────┐ │
+│     │ ReleaseSemaphore(semEmpty, 1)                                  │ │
+│     │ • Increments semEmpty counter                                  │ │
+│     │ • Wakes up producer if it was waiting for empty slot           │ │
+│     └────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Installation & Setup
+## Synchronization Mechanisms
 
-### Prerequisites
+### Why Synchronization is Needed
 
-#### Windows System
-- Windows 7 or later
-- Visual Studio or MinGW GCC compiler
-- Python 3.x installed
-- Administrator access (not always required but recommended)
+Without proper synchronization:
 
-#### Required Software
-| Component | Minimum Version | Purpose |
-|-----------|-----------------|---------|
-| GCC/G++ | 5.0 | Compile C++ code |
-| Python | 3.6 | Run Python reader |
-| pip | Latest | Install Python packages |
+- **Race Condition**: Producer and consumer might access data simultaneously
+- **Buffer Overflow**: Producer might overwrite unread data
+- **Buffer Underflow**: Consumer might read garbage data
 
-### Step 1: Install C++ Compiler
+### Synchronization Primitives Used
 
-**Option A: MinGW-w64 (Recommended for Windows)**
-```bash
-# Download from: https://www.mingw-w64.org/
-# Or use scoop/chocolatey:
-choco install mingw
-# or
-scoop install gcc
-```
+| Primitive           | Name               | Initial Value | Purpose                                     |
+| ------------------- | ------------------ | ------------- | ------------------------------------------- |
+| **Semaphore Empty** | `Local\YOLO_EMPTY` | 5             | Counts available (empty) slots for producer |
+| **Semaphore Full**  | `Local\YOLO_FULL`  | 0             | Counts filled slots ready for consumer      |
+| **Mutex**           | `Local\YOLO_MUTEX` | Unlocked      | Ensures exclusive access during read/write  |
 
-**Option B: Visual Studio Build Tools**
-```bash
-# Install from: https://visualstudio.microsoft.com/downloads/
-# Select "Desktop development with C++"
-```
-
-**Verify Installation**:
-```bash
-g++ --version
-gcc --version
-```
-
-### Step 2: Install Python 3.x
-
-**Option A: Direct Download**
-- Visit https://www.python.org/downloads/
-- Download Python 3.9 or later
-- Run installer with "Add Python to PATH" checked
-
-**Option B: Using Package Manager**
-```bash
-# Using Chocolatey
-choco install python
-
-# Using Scoop
-scoop install python
-```
-
-**Verify Installation**:
-```bash
-python --version
-python -m pip --version
-```
-
-### Step 3: Install Python Dependencies
-
-```bash
-# Install sysv_ipc or mmap (mmap is built-in, may need other packages)
-pip install --upgrade pip
-pip install sysv_ipc  # For POSIX systems (if applicable)
-
-# Note: Windows uses mmap which is part of Python standard library
-```
-
-### Step 4: Compile C++ Program
-
-Navigate to project directory:
-```bash
-cd C:\Users\tamim\Desktop\IPC
-```
-
-Compile:
-```bash
-# Basic compilation
-g++ writer.cpp -o writer.exe
-
-# With debugging symbols
-g++ -g writer.cpp -o writer.exe
-
-# With optimizations
-g++ -O2 writer.cpp -o writer.exe
-```
-
-**Output**:
-- Creates `writer.exe` executable
-- Size typically 100-200 KB depending on compilation flags
-
----
-
-## Execution Instructions
-
-### Method 1: Manual Sequential Execution (Recommended for Learning)
-
-**Step 1: Terminal 1 - Run C++ Writer**
-```bash
-cd C:\Users\tamim\Desktop\IPC
-.\writer.exe
-```
-
-**Expected Output**:
-```
-Shared memory created successfully
-Mapped view of shared memory
-
-=== C++ Program Output ===
-Process ID: 12345
-Counter: 42
-Temperature: 23.5 °C
-Coordinates: [10.5, 20.3, 30.8]
-Username: WindowsUser
-Timestamp: 98765 ms
-Data Array: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-
-Message written to shared memory:
---------------------------------------------------
-Hello from C++ Process!
-This is inter-process communication demonstration.
-Data is being shared through shared memory segment.
-Process ID: 12345
---------------------------------------------------
-
-Data written to shared memory successfully!
-Python program can now read this data.
-Press Enter to cleanup and exit...
-```
-
-**Step 2: Terminal 2 - Run Python Reader**
-
-While C++ program is running:
-```bash
-cd C:\Users\tamim\Desktop\IPC
-python reader.py
-```
-
-**Expected Output**:
-```
-=== Python Program - Shared Memory Reader ===
-
-Attempting to connect to shared memory: Local\IPCSharedMemory
-Successfully connected to shared memory
-
-Reading data from shared memory...
-
-=== Data Retrieved from Shared Memory ===
-Data Ready Flag: True
-C++ Process ID: 12345
-Counter: 42
-Temperature: 23.5 °C
-Coordinates: [10.5, 20.300000429153442, 30.799999237060547]
-Username: WindowsUser
-Timestamp: 98765 ms
-Data Array: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-
-Message from C++ Program:
---------------------------------------------------
-Hello from C++ Process!
-This is inter-process communication demonstration.
-Data is being shared through shared memory segment.
-Process ID: 12345
---------------------------------------------------
-
-=== Python Program Output ===
-Successfully read 98 characters from shared memory
-Python Process ID: 54321
-==================================================
-
-Shared memory connection closed.
-```
-
-**Step 3: Return to Terminal 1**
-
-Press Enter in the C++ terminal to cleanup and exit.
-
----
-
-## Data Structure Details
-
-### Complete Binary Layout
-
-The `SharedData` structure is laid out in memory as follows:
+### Semaphore Operation Timeline
 
 ```
-Offset  Size  Field              Type        Description
-------  ----  -----              ----        -----------
-0       4     processId          int         Process ID of writer
-4       500   message            char[500]   Main message text
-504     1     dataReady          bool        Data validity flag
-505     3     [padding]          bytes       Alignment padding
-508     4     counter            int         Counter value
-512     8     temperature        double      Temperature value
-520     12    coordinates        float[3]    X, Y, Z coordinates
-532     50    userName           char[50]    Username string
-582     6     [padding]          bytes       Alignment padding
-588     8     timestamp          long long   System timestamp
-596     40    dataArray          int[10]     Array of integers
-636     ---   [end of struct]    ---         Total: ~640 bytes
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     SYNCHRONIZATION TIMELINE                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Initial State:  semEmpty = 5,  semFull = 0                            │
+│                                                                         │
+│  PRODUCER                           CONSUMER                            │
+│  ════════                           ════════                            │
+│                                                                         │
+│  Wait(semEmpty)                                                        │
+│  semEmpty: 5 → 4 ✓                                                     │
+│                                                                         │
+│  [WRITE Frame 1]                    Wait(semFull)                      │
+│                                     semFull: 0 → BLOCKED               │
+│                                                                         │
+│  Signal(semFull)                                                       │
+│  semFull: 0 → 1 ───────────────────▶ semFull: 1 → 0 ✓                  │
+│                                                                         │
+│  Wait(semEmpty)                     [READ Frame 1]                     │
+│  semEmpty: 4 → 3 ✓                                                     │
+│                                                                         │
+│  [WRITE Frame 2]                    Signal(semEmpty)                   │
+│                                     semEmpty: 3 → 4                     │
+│                                                                         │
+│  ... (continues)                    ... (continues)                     │
+│                                                                         │
+│  ─────────────────────────────────────────────────────────────────────│
+│                                                                         │
+│  When Queue is FULL (semEmpty = 0):                                    │
+│  • Producer blocks on Wait(semEmpty)                                   │
+│  • Producer waits until consumer reads and signals semEmpty            │
+│                                                                         │
+│  When Queue is EMPTY (semFull = 0):                                    │
+│  • Consumer blocks on Wait(semFull)                                    │
+│  • Consumer waits until producer writes and signals semFull            │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Alignment and Padding
-
-**Why Padding?**
-- CPUs work faster with data aligned to natural boundaries
-- `int` (4 bytes) should start at 4-byte boundaries
-- `double` (8 bytes) should start at 8-byte boundaries
-- Compiler adds padding to maintain alignment
-
-**Example**:
-```cpp
-struct {
-    bool b;      // 1 byte  (offset 0)
-    // 3 bytes padding (offsets 1-3)
-    int i;       // 4 bytes (offset 4) - naturally aligned
-}
-```
-
-### Platform Considerations
-
-**Windows 32-bit vs 64-bit**:
-- Pointer sizes differ, but this struct uses fixed-size types
-- Should be binary compatible across platforms
-- Long long is 8 bytes on both platforms
-
-**Endianness**:
-- This code assumes little-endian (Intel/ARM)
-- Big-endian systems (PowerPC, SPARC) need byte swapping
-- Use `socket.htons()` / `socket.ntohl()` for portable code
-
----
-
-## How It Works
-
-### Complete Data Flow
+### Circular Buffer Visualization
 
 ```
-1. C++ STARTUP
-   ├─ Call CreateFileMapping() with SHM_NAME
-   ├─ Kernel creates shared memory object
-   ├─ Returns HANDLE to file mapping
-   ├─ Call MapViewOfFile() to get pointer
-   ├─ Virtual address space mapped to physical memory
-   └─ Ready for data writes
-
-2. C++ DATA WRITING
-   ├─ Write processId: sharedData->processId = GetCurrentProcessId()
-   ├─ Write message: strcpy(sharedData->message, "Hello...")
-   ├─ Write numbers: sharedData->temperature = 23.5
-   ├─ Write arrays: for loop filling dataArray
-   └─ Set flag: sharedData->dataReady = true
-
-3. WAITING & SYNCHRONIZATION
-   ├─ C++ waits for user input (cin.get())
-   ├─ Python program runs during this wait
-   ├─ Both programs access same physical memory
-   ├─ No serialization/deserialization needed
-   └─ Data transfer is immediate
-
-4. PYTHON STARTUP
-   ├─ Call mmap.mmap(-1, SHM_SIZE, SHM_NAME)
-   ├─ System finds existing mapping by name
-   ├─ Maps same physical memory to Python process
-   ├─ Returns file object for memory access
-   └─ Ready for data reads
-
-5. PYTHON DATA READING
-   ├─ Read raw bytes: shm.read(SHM_SIZE)
-   ├─ Parse structure: unpack_from_bytes(raw_data)
-   ├─ Extract processId using struct.unpack('i', ...)
-   ├─ Extract message using byte slicing and decoding
-   ├─ Extract numbers using appropriate format codes
-   ├─ Extract arrays using format codes like 'fff' or '10i'
-   └─ Display all retrieved values
-
-6. CLEANUP
-   ├─ C++ calls UnmapViewOfFile(sharedData)
-   ├─ C++ calls CloseHandle(hMapFile)
-   ├─ Python calls shm.close()
-   ├─ Kernel frees memory resources
-   ├─ Shared memory object destroyed
-   └─ Both processes exit
-```
-
-### Memory Access Pattern
-
-```
-Time →
-
-C++ Process          Python Process
-┌───────────────┐    
-│ CreateMapping │    
-└───────┬───────┘    
-        │            
-   ┌────▼────┐       
-   │MapView   │       
-   └────┬────┘       
-        │            
-   ┌────▼──────────┐  
-   │Write Data     │  
-   └────┬──────────┘  
-        │             ┌─────────────────┐
-        │             │ Open Mapping    │
-        │             └────────┬────────┘
-        │                      │
-        │             ┌────────▼────────┐
-        │             │ Read Raw Bytes  │
-        │             └────────┬────────┘
-        │                      │
-        │             ┌────────▼────────┐
-        │             │Unpack & Display │
-        │             └────────┬────────┘
-        │                      │
-        │             ┌────────▼────────┐
-        │             │Close Mapping    │
-        │             └─────────────────┘
-        │
-   ┌────▼──────────┐
-   │ Wait for Input│
-   └────┬──────────┘
-        │
-   ┌────▼──────────┐
-   │ Cleanup       │
-   └───────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    CIRCULAR BUFFER OPERATION                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Initial State:                                                         │
+│  ┌───┬───┬───┬───┬───┐                                                 │
+│  │   │   │   │   │   │  write_idx = 0, read_idx = 0, count = 0         │
+│  └───┴───┴───┴───┴───┘                                                 │
+│   W/R                    (Both pointers at position 0)                  │
+│                                                                         │
+│  After Producer writes 3 frames:                                        │
+│  ┌───┬───┬───┬───┬───┐                                                 │
+│  │ F1│ F2│ F3│   │   │  write_idx = 3, read_idx = 0, count = 3         │
+│  └───┴───┴───┴───┴───┘                                                 │
+│    R          W          (R = Read position, W = Write position)        │
+│                                                                         │
+│  After Consumer reads 2 frames:                                         │
+│  ┌───┬───┬───┬───┬───┐                                                 │
+│  │   │   │ F3│   │   │  write_idx = 3, read_idx = 2, count = 1         │
+│  └───┴───┴───┴───┴───┘                                                 │
+│            R   W                                                        │
+│                                                                         │
+│  Wraparound (after many operations):                                    │
+│  ┌───┬───┬───┬───┬───┐                                                 │
+│  │F10│   │   │ F8│ F9│  write_idx = 1, read_idx = 3, count = 3         │
+│  └───┴───┴───┴───┴───┘                                                 │
+│       W       R          (Write pointer wrapped around)                 │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Memory Layout
 
-### Visualization of Memory in Shared Segment
+### Structure Alignment (Important!)
+
+When sharing memory between C++ and Python, **byte alignment** must match exactly:
 
 ```
-C++ Writes                Python Reads
-    ↓                         ↓
-┌──────────────────────────────────────────────┐
-│ Shared Memory Segment (1024 bytes)           │
-├──────────────────────────────────────────────┤
-│ [0-3]       : ProcessId        12345         │
-├──────────────────────────────────────────────┤
-│ [4-503]     : Message          "Hello..."    │
-├──────────────────────────────────────────────┤
-│ [504]       : DataReady Flag    1 (true)     │
-│ [505-507]   : [Padding]        0x00         │
-├──────────────────────────────────────────────┤
-│ [508-511]   : Counter          42           │
-├──────────────────────────────────────────────┤
-│ [512-519]   : Temperature      23.5         │
-├──────────────────────────────────────────────┤
-│ [520-523]   : Coord[0]         10.5         │
-│ [524-527]   : Coord[1]         20.3         │
-│ [528-531]   : Coord[2]         30.8         │
-├──────────────────────────────────────────────┤
-│ [532-581]   : Username         "WindowsUser"│
-│ [582-587]   : [Padding]        0x00         │
-├──────────────────────────────────────────────┤
-│ [588-595]   : Timestamp        98765        │
-├──────────────────────────────────────────────┤
-│ [596-635]   : DataArray[0-9]   [10,20,...] │
-├──────────────────────────────────────────────┤
-│ [636-1023]  : [Unused space]   0x00         │
-└──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    C++ STRUCTURE MEMORY LAYOUT                          │
+│                    (Simple Visualization Example)                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Offset   Size    Field              Notes                             │
+│  ──────   ────    ─────              ─────                             │
+│  0        4       processId          int (4 bytes)                      │
+│  4        500     message[500]       char array                         │
+│  504      1       dataReady          bool                               │
+│  505      3       (padding)          Alignment to 4-byte boundary       │
+│  508      4       counter            int                                │
+│  512      8       temperature        double (8-byte aligned)            │
+│  520      12      coordinates[3]     3 floats                           │
+│  532      50      userName[50]       char array                         │
+│  582      6       (padding)          Alignment to 8-byte boundary       │
+│  588      8       timestamp          long long (8-byte aligned)         │
+│  596      40      dataArray[10]      10 ints                            │
+│  636      -       Total Size                                            │
+│                                                                         │
+│  Python must read at EXACT same offsets using struct.unpack()          │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Virtual Address Space Mapping
+### Python struct Format Strings
 
+```python
+# Common format characters:
+# 'i' = int (4 bytes)
+# 'f' = float (4 bytes)
+# 'd' = double (8 bytes)
+# 'Q' = unsigned long long (8 bytes)
+# '500s' = 500-byte string
+
+# Example: Read process_id (int at offset 0)
+process_id = struct.unpack('i', data[0:4])[0]
+
+# Example: Read temperature (double at offset 512)
+temperature = struct.unpack('d', data[512:520])[0]
+
+# Example: Read 3 float coordinates
+coordinates = struct.unpack('fff', data[520:532])
 ```
-C++ Process Virtual Address Space:
-┌─────────────────────┐
-│ Stack               │ (High addresses)
-├─────────────────────┤
-│ Heap                │
-├─────────────────────┤
-│ Data                │
-├─────────────────────┤
-│ Text (Code)         │
-├─────────────────────┤
-│ MMapped Region ◄────┼─────┐
-│ (Shared Memory)     │     │
-└─────────────────────┘     │
-                            │
-                Physical Memory (Kernel)
-                     ↓
-                ┌─────────┐
-                │ Shared  │
-                │ Memory  │
-                │ Buffer  │
-                └─────────┘
-                     ↑
-                     │
-┌─────────────────────┘
-│
-Python Process Virtual Address Space:
-│
-├─────────────────────┐
-│ Stack               │ (High addresses)
-├─────────────────────┤
-│ Heap                │
-├─────────────────────┤
-│ Data                │
-├─────────────────────┤
-│ Text (Code)         │
-├─────────────────────┤
-│ MMapped Region ◄────┘
-│ (Shared Memory)
-└─────────────────────┘
+
+---
+
+## How to Run
+
+### Simple Visualization
+
+**Step 1: Compile C++ Writer**
+
+```bash
+cd "IPC(Simple visualizaton)"
+g++ writer.cpp -o writer.exe
 ```
+
+**Step 2: Run C++ Writer (Terminal 1)**
+
+```bash
+./writer.exe
+```
+
+**Step 3: Run Python Reader (Terminal 2)**
+
+```bash
+python reader.py
+```
+
+### YOLOv5 Object Detection
+
+**Prerequisites:**
+
+- Visual Studio 2019/2022 with C++ desktop development
+- OpenCV 4.x
+- ONNX Runtime
+- Python 3.8+ with packages: `opencv-python`, `numpy`, `pywin32`
+
+**Step 1: Build C++ Producer**
+
+```bash
+cd "IPC(yelov5 for object detection)/producer"
+# Open assignment_cpp.sln in Visual Studio
+# Build in Release or Debug mode
+```
+
+**Step 2: Run C++ Producer (Creates shared memory)**
+
+```bash
+./assignment_cpp.exe
+```
+
+**Step 3: Install Python Dependencies**
+
+```bash
+cd "../consumer"
+pip install -r requirements.txt
+```
+
+**Step 4: Run Python Consumer**
+
+```bash
+python consumer_shm.py
+```
+
+**Controls:**
+
+- `ESC` - Exit application
+- `SPACE` - Pause/Resume
 
 ---
 
 ## Troubleshooting
 
-### Common Issues and Solutions
-
-#### 1. "Shared memory segment not found!"
-**Cause**: Python reader starts before C++ writer
-**Solution**: 
-- Start C++ writer first
-- Wait until it says "Press Enter to cleanup and exit..."
-- Then start Python reader in another terminal
-
-#### 2. Compilation Error: "Cannot find windows.h"
-**Cause**: MinGW or Visual Studio not installed
-**Solution**:
-```bash
-# Install MinGW-w64
-choco install mingw
-
-# Verify
-g++ --version
-```
-
-#### 3. Data corruption or garbage values
-**Cause**: Struct alignment mismatch
-**Solution**:
-- Ensure C++ uses same packing as Python assumes
-- Use `#pragma pack(1)` if needed for C++
-- Verify memory layout matches exactly
-
-#### 4. "Failed to create shared memory. Error: 5"
-**Cause**: Permission denied or named object already exists
-**Solution**:
-- Run as administrator
-- Close all running instances and retry
-- Restart computer if issue persists
-
-#### 5. Encoding errors when reading message
-**Cause**: Non-UTF-8 characters in shared memory
-**Solution**:
-- Python uses `errors='ignore'` for robustness
-- Ensure C++ writes valid UTF-8 text
-- Use `encode('utf-8')` explicitly in C++
-
-#### 6. Python ImportError: "No module named 'struct'"
-**Cause**: Struct module not in Python installation (very rare)
-**Solution**:
-- `struct` is built-in; reinstall Python
-```bash
-python -m pip install --upgrade pip
-python -c "import struct; print(struct.__file__)"
-```
-
-### Debugging Strategies
-
-#### Strategy 1: Verify Shared Memory Creation
-**C++ Side**:
-```cpp
-if (hMapFile == NULL) {
-    std::cerr << "Error: " << GetLastError() << std::endl;
-    // Error codes: 5 = access denied, 87 = invalid parameter
-}
-```
-
-#### Strategy 2: Check Binary Layout
-**Python Side**:
-```python
-# Add after reading raw_data
-print(f"Raw data first 20 bytes: {raw_data[:20].hex()}")
-print(f"Total bytes read: {len(raw_data)}")
-```
-
-#### Strategy 3: Print Offset Positions
-```python
-# In unpack_from_bytes after each field:
-print(f"After processId: offset={offset}")
-print(f"ProcessId value: {shared.process_id}")
-```
-
-#### Strategy 4: Use System Tools
-
-**Windows - View Shared Memory Objects**:
-```powershell
-# Using WinObj or Sysinternals tools
-wmic os list
-
-# Check process info
-tasklist | findstr writer
-```
-
-**Python - Inspect Variables**:
-```python
-import pprint
-pprint.pprint(vars(shared_data))
-```
+| Issue                      | Cause                            | Solution                              |
+| -------------------------- | -------------------------------- | ------------------------------------- |
+| "Shared memory not found"  | Consumer started before producer | Start producer first                  |
+| "Access denied"            | Permission issues                | Run as Administrator                  |
+| Data appears corrupted     | Structure alignment mismatch     | Verify byte offsets match             |
+| Consumer receives old data | Circular buffer full             | Increase QUEUE_SIZE                   |
+| No detections displayed    | Model file missing               | Ensure `yolov5s.onnx` exists          |
+| Video not found            | Missing video file               | Place `video.mp4` in producer folder  |
+| Python import errors       | Missing packages                 | Run `pip install -r requirements.txt` |
 
 ---
 
-## Performance Characteristics
+## Key Concepts Summary
 
-### Latency and Throughput
-
-| Metric | Value | Notes |
-|--------|-------|-------|
-| Memory Copy Time (1KB) | <1 μs | Direct memory access |
-| Creation Overhead | ~0.1 ms | One-time cost |
-| Read/Write Time | Negligible | Direct pointer access |
-| Maximum Throughput | >1 GB/s | Limited by system bus |
-
-### Comparison with Other IPC Methods
-
-| Method | Latency | Throughput | Setup Time |
-|--------|---------|-----------|------------|
-| Shared Memory | Very Low (<1 μs) | Very High (GB/s) | Low (1-2 ms) |
-| Pipes | Low (10-100 μs) | High (10-100 MB/s) | Low |
-| Sockets | High (100 μs-1 ms) | Medium (1-100 MB/s) | Medium |
-| Message Queue | Medium (10-100 μs) | Medium (10-100 MB/s) | Medium |
-| Files | High (1-10 ms) | Variable | High |
-
----
-
-## Extensions and Improvements
-
-### Possible Enhancements
-
-1. **Add Synchronization**
-   - Implement mutexes for thread safety
-   - Use events/conditions for handshaking
-
-2. **Bidirectional Communication**
-   - Allow Python to write back to C++
-   - Implement message passing protocol
-
-3. **Multiple Processes**
-   - Support more than 2 communicating processes
-   - Ring buffer for multiple readers
-
-4. **Larger Data Transfer**
-   - Support variable-sized payloads
-   - Implement chunked reading/writing
-
-5. **Error Handling**
-   - Add checksums for data integrity
-   - Implement recovery mechanisms
-
-6. **Cross-Platform Support**
-   - Use POSIX APIs on Linux
-   - Conditional compilation with #ifdef
+| Concept               | Description                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------ |
+| **Shared Memory**     | Memory region accessible by multiple processes                                       |
+| **Named Mapping**     | Uses a string name (e.g., `Local\\IPCSharedMemory`) so processes can find each other |
+| **Semaphore**         | Counter that blocks threads when it reaches zero - used for signaling                |
+| **Mutex**             | Mutual exclusion lock - ensures only one process accesses critical section           |
+| **Circular Buffer**   | Fixed-size queue that wraps around - efficient for streaming data                    |
+| **Producer-Consumer** | Design pattern where one process generates data, another processes it                |
+| **Memory Alignment**  | Data types must start at specific byte boundaries for proper access                  |
 
 ---
 
 ## References
 
-### Windows API Documentation
-- [CreateFileMapping](https://docs.microsoft.com/windows/win32/api/winbase/nf-winbase-createfilemappinga)
-- [MapViewOfFile](https://docs.microsoft.com/windows/win32/api/winbase/nf-winbase-mapviewoffile)
-- [UnmapViewOfFile](https://docs.microsoft.com/windows/win32/api/winbase/nf-winbase-unmapviewoffile)
-
-### Python Documentation
-- [mmap — Memory-mapped file objects](https://docs.python.org/3/library/mmap.html)
-- [struct — Interpret bytes as packed binary data](https://docs.python.org/3/library/struct.html)
-
-### IPC Concepts
-- [InterProcess Communication on Wikipedia](https://en.wikipedia.org/wiki/Inter-process_communication)
-- [Shared Memory IPC Tutorial](https://www.geeksforgeeks.org/ipc-using-shared-memory/)
-```cpp
-struct SharedData {
-    int processId;        // 4 bytes
-    char message[900];    // 900 bytes
-    bool dataReady;       // 1 byte
-};
-```
-
-### 3. **Writing Data (C++)**
-```cpp
-SharedData* sharedData = (SharedData*)shmat(shmid, NULL, 0);
-sharedData->processId = getpid();
-strcpy(sharedData->message, "Hello from C++!");
-sharedData->dataReady = true;
-```
-
-### 4. **Reading Data (Python)**
-```python
-memory = sysv_ipc.SharedMemory(SHM_KEY)
-raw_data = memory.read()
-# Unpack binary data into structure
-```
-
----
-
-## Expected Output
-
-### C++ Program Output:
-```
-Shared memory created successfully with ID: XXXXX
-Attached to shared memory
-
-=== C++ Program Output ===
-Process ID: 12345
-Message written to shared memory:
-Hello from C++ Process!
-This is inter-process communication demonstration.
-Data is being shared through shared memory segment.
-Process ID: 12345
-=========================
-
-Data written to shared memory successfully!
-Python program can now read this data.
-Press Enter to cleanup and exit...
-```
-
-### Python Program Output:
-```
-=== Python Program - Shared Memory Reader ===
-
-Attempting to connect to shared memory with key: 5678
-Successfully connected to shared memory (ID: XXXXX)
-
-Reading data from shared memory...
-
-=== Data Retrieved from Shared Memory ===
-Data Ready Flag: True
-C++ Process ID: 12345
-
-Message from C++ Program:
---------------------------------------------------
-Hello from C++ Process!
-This is inter-process communication demonstration.
-Data is being shared through shared memory segment.
-Process ID: 12345
---------------------------------------------------
-
-=== Python Program Output ===
-Successfully read XX characters from shared memory
-==================================================
-```
-
----
-
-## Troubleshooting
-
-### Problem: "Shared memory segment not found"
-**Solution**: Make sure the C++ program is running or has created the shared memory before running Python program.
-
-### Problem: "Permission denied"
-**Solution**: Run with appropriate permissions or check shared memory permissions:
-```bash
-ipcs -m  # List shared memory segments
-```
-
-### Problem: Compilation errors in C++
-**Solution**: Ensure you're on a POSIX-compatible system (Linux/Unix/macOS)
-
-### Problem: Python module not found
-**Solution**: Install sysv_ipc:
-```bash
-pip3 install sysv_ipc
-```
-
----
-
-## Cleanup
-
-### View existing shared memory segments:
-```bash
-ipcs -m
-```
-
-### Remove a specific shared memory segment:
-```bash
-ipcrm -m <shmid>
-```
-
-### Remove all shared memory segments (use with caution):
-```bash
-ipcs -m | awk '/^0x/{print $2}' | xargs -I {} ipcrm -m {}
-```
-
----
-
-## Key Concepts Demonstrated
-
-1. **Shared Memory IPC**: Fast communication between processes
-2. **Cross-Language Communication**: C++ and Python working together
-3. **Binary Data Handling**: Packing/unpacking structures
-4. **Process Synchronization**: Coordination between processes
-5. **System V IPC**: Traditional Unix IPC mechanism
-
----
-
-## Assignment Questions to Consider
-
-1. What happens if Python tries to read before C++ writes?
-2. How would you implement synchronization (semaphores)?
-3. What are the advantages of shared memory over pipes or sockets?
-4. How would you modify this to support bidirectional communication?
-
----
-
-## Additional Enhancements (Optional)
-
-1. Add semaphore-based synchronization
-2. Implement multiple readers/writers
-3. Add error recovery mechanisms
-4. Create a message queue version for comparison
-5. Benchmark performance vs other IPC methods
-
----
-
-## Files in This Project
-
-- `writer.cpp` - C++ program that writes to shared memory
-- `reader.py` - Python program that reads from shared memory
-- `README.md` - This documentation file
-
----
-
-## License
-Educational/Academic Use
-
-## Author
-IPC Assignment Implementation
+- [Windows Shared Memory (MSDN)](https://docs.microsoft.com/en-us/windows/win32/memory/creating-named-shared-memory)
+- [Windows Semaphores (MSDN)](https://docs.microsoft.com/en-us/windows/win32/sync/using-semaphore-objects)
+- [Python mmap Module](https://docs.python.org/3/library/mmap.html)
+- [Python struct Module](https://docs.python.org/3/library/struct.html)
+- [YOLOv5 Documentation](https://github.com/ultralytics/yolov5)
+- [ONNX Runtime](https://onnxruntime.ai/)
